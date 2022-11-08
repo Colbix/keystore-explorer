@@ -86,6 +86,7 @@ public class DSignJar extends JEscDialog {
     private static ResourceBundle res = ResourceBundle.getBundle("org/kse/gui/dialogs/sign/resources");
 
     private static final String CANCEL_KEY = "CANCEL_KEY";
+    private static final String FILE_EXT = ".jar";
 
     private JLabel jlOutputJarFixes;
     private JRadioButton jrbOutputJarFixes;
@@ -216,8 +217,8 @@ public class DSignJar extends JEscDialog {
         jbOK = new JButton(res.getString("DSignJar.jbOK.text"));
 
         jbCancel = new JButton(res.getString("DSignJar.jbCancel.text"));
-        jbCancel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), CANCEL_KEY);
+        jbCancel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                CANCEL_KEY);
 
         jpButtons = PlatformUtil.createDialogButtonPanel(jbOK, jbCancel, "insets 0");
 
@@ -417,11 +418,11 @@ public class DSignJar extends JEscDialog {
     /**
      * The function checks the following
      * <p>
-     * - dialog fields to ensure they are not empty
+     * - empty dialog fields
      * <p>
-     * - output file paths for overwriting files
+     * - duplicate file names to overwrite
      * <p>
-     * - signature for overwriting signatures
+     * - signature to overwrite
      */
     private void okPressed() {
         String signatureName = jtfSignatureName.getText().trim();
@@ -431,28 +432,28 @@ public class DSignJar extends JEscDialog {
         // check if any files selected
         if ((inputJarFiles == null) || (inputJarFiles.length == 0)) {
             JOptionPane.showMessageDialog(this, res.getString("DSignJar.InputJarRequired.message"), getTitle(),
-                                          JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         // check if signature field was filled
         if (signatureName.length() == 0) {
             JOptionPane.showMessageDialog(this, res.getString("DSignJar.ValReqSignatureName.message"), getTitle(),
-                                          JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         // check if signature is verified
         if (!verifySignatureName(signatureName)) {
             JOptionPane.showMessageDialog(this, res.getString("DSignJar.ValJarSignatureName.message"), getTitle(),
-                                          JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         // check if time stamp URL is empty
         if (jcbAddTimestamp.isSelected() && jcbTimestampServerUrl.getSelectedItem().toString().isEmpty()) {
             JOptionPane.showMessageDialog(this, res.getString("DSignJar.EmptyTimestampUrl.message"), getTitle(),
-                                          JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -460,7 +461,7 @@ public class DSignJar extends JEscDialog {
         if (jrbOutputJarFixes.isSelected()) {
             if ((outputJarPrefix.length() == 0) && (outputJarSuffix.length() == 0)) {
                 JOptionPane.showMessageDialog(this, res.getString("DSignJar.OutputJarRequired.message"), getTitle(),
-                                              JOptionPane.WARNING_MESSAGE);
+                        JOptionPane.WARNING_MESSAGE);
                 return;
             }
         }
@@ -474,9 +475,14 @@ public class DSignJar extends JEscDialog {
             tsaUrl = jcbTimestampServerUrl.getSelectedItem().toString();
         }
 
-        // set output Jar files and Overwrite File if selected
-        if (!setOutputJarFiles(inputJarFiles)) {
-            return;
+        // set output Jar file list to file array
+        outputJarFiles = new ArrayList<File>(Arrays.asList(inputJarFiles));
+
+        // update base output file names with prefix and suffix if selected
+        if (jrbOutputJarFixes.isSelected()) {
+            if (!updateOutputFiles()) {
+                return;
+            }
         }
 
         // check signature and Overwrite Signature if selected
@@ -488,82 +494,87 @@ public class DSignJar extends JEscDialog {
     }
 
     /**
-     * Set output JAR files and check files for overwrite
+     * Update base output file names and warn if duplicate file
      *
-     * @return <b>Boolean</b> true if successful false if no option chosen
+     * @return True if successful false if no option chosen
      */
-    private boolean setOutputJarFiles(File[] files) {
-        String outputJarPrefix = jtfPrefix.getText().trim();
-        String outputJarSuffix = jtfSuffix.getText().trim();
-        final String FILE_SUFFIX = ".jar";
-        JCheckBox checkbox = new JCheckBox(res.getString("DSignJar.OverwriteSkip.message"));
+    private boolean updateOutputFiles() {
+        String fileBasePrefix = jtfPrefix.getText().trim();
+        String fileBaseSuffix = jtfSuffix.getText().trim();
+        JCheckBox checkboxSkip = new JCheckBox(res.getString("DSignJar.OverwriteSkip.message"));
+        boolean isComplete = true;
+        // loop through output files
+        for (int i = 0; i < outputJarFiles.size(); i++) {
+            // set prefix and suffix to the file name
+            StringBuilder outFileName = new StringBuilder();
+            String fileBaseName = FileNameUtil.removeExtension(outputJarFiles.get(i).getName());
+            outFileName.append(outputJarFiles.get(i).getParent());
+            outFileName.append("\\");
+            outFileName.append(fileBasePrefix);
+            outFileName.append(fileBaseName);
+            outFileName.append(fileBaseSuffix);
+            outFileName.append(FILE_EXT);
+            // replace file object in arraylist
+            outputJarFiles.set(i, new File(outFileName.toString()));
 
-        // set input files array to output files list
-        this.outputJarFiles = new ArrayList<File>(Arrays.asList(files));
+            // check if skip message is unchecked
+            if (!checkboxSkip.isSelected()) {
+                // check if there is a duplicate file
+                if (outputJarFiles.get(i).isFile()) {
+                    String message = MessageFormat.format(res.getString("DSignJar.OverWriteOutputJarFile.message"),
+                            outputJarFiles.get(i));
+                    Object[] params = { message, checkboxSkip };
 
-        if (jrbOutputJarFixes.isSelected()) {
-            // loop through output JAR files
-            for (int i = 0; i < outputJarFiles.size(); i++) {
-                // set prefix and suffix to the file name
-                String fileBaseName = FileNameUtil.removeExtension(outputJarFiles.get(i).getName());
-                String outFileName =
-                        outputJarFiles.get(i).getParent() + "\\" + outputJarPrefix + fileBaseName + outputJarSuffix +
-                        FILE_SUFFIX;
-                // replace file object in arraylist
-                this.outputJarFiles.set(i, new File(outFileName));
-
-                if (!checkbox.isSelected()) {
-                    // check if file exists
-                    if (outputJarFiles.get(i).isFile()) {
-                        String message = MessageFormat.format(res.getString("DSignJar.OverWriteOutputJarFile.message"),
-                                                              outputJarFiles.get(i));
-                        Object[] params = { message, checkbox };
-
-                        // check if overwrite is allowed and present checkbox to skip overwrite message
-                        int selected = JOptionPane.showConfirmDialog(this, params, getTitle(),
-                                                                     JOptionPane.YES_NO_OPTION);
-                        if (selected != JOptionPane.YES_OPTION) {
-                            this.outputJarFiles.clear();
-                            return false;
-                        }
+                    // present checkbox to skip overwrite message
+                    int selected = JOptionPane.showConfirmDialog(this, params, getTitle(), JOptionPane.YES_NO_OPTION);
+                    // check if duplicate file overwrite is not allowed
+                    if (selected == JOptionPane.NO_OPTION) {
+                        outputJarFiles.clear();
+                        isComplete = false;
+                        break;
                     }
                 }
             }
         }
-        return true;
+        return isComplete;
     }
 
     /**
      * Checks to overwrite an existing signature
      *
-     * @return <b>Boolean</b> continues jar signing if true cancels process if false
+     * @return True if complete false if canceled
      */
     private boolean checkSignature(File[] files) {
-        JCheckBox checkbox = new JCheckBox(res.getString("DSignJar.OverwriteSkip.message"));
+        boolean isComplete = true;
+        JCheckBox checkboxSkip = new JCheckBox(res.getString("DSignJar.OverwriteSkip.message"));
 
         for (int i = 0; i < files.length; i++) {
             try {
                 // check if the existing signature matches the current signature
                 if (JarSigner.hasSignature(files[i], this.signatureName)) {
                     String message = MessageFormat.format(res.getString("DSignJar.SignatureOverwrite.message"),
-                                                          this.signatureName, files[i].getName());
-                    Object[] params = { message, checkbox };
-                    // check if overwrite is allowed and present checkbox to skip overwrite message
+                            this.signatureName, files[i].getName());
+                    Object[] params = { message, checkboxSkip };
+
+                    // present signature overwrite message
                     int selected = JOptionPane.showConfirmDialog(this, params, getTitle(), JOptionPane.YES_NO_OPTION);
-                    if (selected != JOptionPane.YES_OPTION) {
-                        return false;
+                    // check if signature overwrite is not allowed
+                    if (selected == JOptionPane.NO_OPTION) {
+                        isComplete = false;
+                        break;
                     }
                 }
             } catch (IOException ex) {
                 DError.displayError(this, ex);
-                return false;
+                isComplete = false;
+                break;
             }
-            // check to skip overwrite alert message
-            if (checkbox.isSelected()) {
-                return true;
+            // check to skip signature overwrite message
+            if (checkboxSkip.isSelected()) {
+                break;
             }
         }
-        return true;
+        return isComplete;
     }
 
     /**
@@ -609,7 +620,7 @@ public class DSignJar extends JEscDialog {
      * Check if a file is a valid JAR
      *
      * @param file accepts a jar file
-     * @return <b>Boolean</b> true if the file is a valid jar and false if not
+     * @return True if the file is a valid jar and false otherwise
      */
     private boolean validJAR(File file) {
         JarFile jarFile = null;
@@ -620,7 +631,7 @@ public class DSignJar extends JEscDialog {
             String problemStr = MessageFormat.format(res.getString("DSignJar.NoOpenJar.Problem"), file.getName());
 
             String[] causes = new String[] { res.getString("DSignJar.NotJar.Cause"),
-                                             res.getString("DSignJar.CorruptedJar.Cause") };
+                    res.getString("DSignJar.CorruptedJar.Cause") };
 
             Problem problem = new Problem(problemStr, causes, ex);
 
@@ -639,7 +650,7 @@ public class DSignJar extends JEscDialog {
     /**
      * Returns the current success status
      *
-     * @return successStatus true if successful false if not
+     * @return True if successful false otherwise
      */
     public boolean isSuccessful() {
         return successStatus;
